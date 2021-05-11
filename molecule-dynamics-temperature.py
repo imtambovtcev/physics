@@ -10,7 +10,7 @@ from matplotlib.figure import Figure
 import random
 
 class Model():
-    def __init__(self,size=30):
+    def __init__(self,size=32):
         self.size=int(size)
         self.set_on_lattice()
         self.t=1
@@ -19,11 +19,11 @@ class Model():
     def set_on_lattice(self):
         nx=ny=int(np.ceil(np.sqrt(self.size)))
         rx=np.linspace(0,1-1/nx,nx)+0.5/nx
-        print(f'{nx = }')
-        print(f'{rx = }')
+        # print(f'{nx = }')
+        # print(f'{rx = }')
         ry = np.linspace(0, 1-1/ny, ny) + 0.5 / ny
-        print(f'{ny = }')
-        print(f'{ry = }')
+        # print(f'{ny = }')
+        # print(f'{ry = }')
         self.r=np.array(np.meshgrid(rx,ry)).reshape(2,-1).T
         self.r=self.r[:self.size,:]
         print(f'{self.r.shape = }')
@@ -35,19 +35,13 @@ class Model():
         self.v = np.random.rand(self.size, 2)
         print(f'{self.r.shape = }')
 
-class Worker(QtCore.QRunnable):
-    '''
-    Worker thread
-    '''
+    def boundaryCheck(self):
+        self.r-=self.r//1
 
-    @QtCore.pyqtSlot()
-    def run(self):
-        '''
-        Your code goes in this function
-        '''
-        print("Thread start")
-        time.sleep(5)
-        print("Thread complete")
+    def run(self, dt):
+        self.time+=dt
+        self.r+=dt*self.v
+        self.boundaryCheck()
 
 class RenderWidget(QtWidgets.QWidget):
     def __init__(self, *vargs, model=None, **kwargs):
@@ -77,7 +71,13 @@ class RenderWidget(QtWidgets.QWidget):
         layout.addWidget(self.canvas)
         layout.addWidget(self.button)
         self.setLayout(layout)
+        self.isfree=True
         self.updatePlot()
+
+        self.timer = QtCore.QTimer()
+        self.timer.start(1000/10)
+        #self.timer.setInterval(1000)  # .5 seconds
+        self.timer.timeout.connect(self.updatePlot)
 
     def onrecord(self):
         if self.record:
@@ -89,15 +89,21 @@ class RenderWidget(QtWidgets.QWidget):
         print(self.figure)
 
     def updatePlot(self):
-        ax = self.figure.add_subplot(111)
-        ax.clear()
-        ax.plot(*self.model.r.T, '*')
-        ax.set_xlim([0,1])
-        ax.set_ylim([0, 1])
-        ax.get_xaxis().set_visible(False)
-        ax.get_yaxis().set_visible(False)
-        ax.set_title('t = {}'.format(self.model.time))
-        self.canvas.draw()
+        #print(f'plot update')
+        if self.isfree:
+            self.isfree=False
+            ax = self.figure.add_subplot(111)
+            ax.clear()
+            ax.plot(*self.model.r.T, '*')
+            ax.set_xlim([0,1])
+            ax.set_ylim([0,1])
+            ax.get_xaxis().set_visible(False)
+            #ax.get_yaxis().set_visible(False)
+            ax.set_title('t = {:10.4f}'.format(self.model.time))
+            self.canvas.draw()
+            self.isfree = True
+            #print('Plot updated!')
+
 
 ######################################################################################################
 
@@ -129,30 +135,48 @@ class ParamWidget(QtWidgets.QWidget):
         vbox.addWidget(self.randomWidget)
         vbox.addWidget(QtWidgets.QLabel("Температура"))
         vbox.addWidget(self.tWidget)
-
         vbox.addStretch(1)
         self.setLayout(vbox)
-
         self.reset_parameters()
-
         self.show()
+        self.isfree = True
+        self.timer = QtCore.QTimer()
+        self.timer.start(1000 / 10)
+        self.timer.timeout.connect(self.updateState)
+
+    def updateState(self):
+        print(f'state update')
+        if self.isfree:
+            self.isfree = False
+            for _ in range(10):
+                self.model.run(0.001)
+            self.isfree = True
+            print('State updated!')
 
     def reset_parameters(self):
-        self.t=0
+        self.model.t=100
+        self.model.time=0.
 
     def onReset(self, value):
         self.reset_parameters()
 
     def onFM(self, value):
         self.model.set_on_lattice()
-        self.parent().updateEvent()
 
     def onRandom(self, value):
         self.model.set_rand()
-        self.parent().updateEvent()
 
     def ontValue(self, value):
         self.model.t = value
+
+    def onPause(self):
+        if self.pause:
+            self.button.setText('Запись')
+            self.pause=False
+        else:
+            self.button.setText('Прервать запись')
+            self.pause = True
+        print(self.figure)
 
     @property
     def t(self):
@@ -181,13 +205,8 @@ class MainWindow(QtWidgets.QWidget):
         hbox.addWidget(self.paramWidget)
         hbox.addWidget(self.renderWidget)
         self.setLayout(hbox)
-
         # self.paramWidget.onSceneChanged = self.renderWidget.load_scene
-
         self.show()
-
-    def updateEvent(self):
-        self.renderWidget.updatePlot()
 
     def keyPressEvent(self, event):
         # Quit when ESC is pressed
