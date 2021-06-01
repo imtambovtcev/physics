@@ -13,6 +13,9 @@ from scipy.spatial import distance_matrix
 import matplotlib.pyplot as plt
 from scipy.stats import maxwell
 
+
+# класс для выпадающей менюшки
+
 class Combo(QtWidgets.QComboBox):
     def __init__(self, dict):
         super(Combo, self).__init__()
@@ -36,7 +39,7 @@ class Combo(QtWidgets.QComboBox):
     #     self.tWidget.setValue(int(self.t))
 
 
-
+# класс для состояния записи
 
 class State():
     def __init__(self):
@@ -46,33 +49,37 @@ class State():
         self.update_request=False
         self.update_plot_request = False
 
+# основной класс для хранения данных
+
 class Model():
     def __init__(self,size=100):
-        self.t=250.
-        self.time=0.
-        self.data_save_rate=0.01
-        self.data_save_rate_coeff = 1.
-        self.last_data_update=0.
-        self.reservoir_energy=0.
+        self.t=250. # температура
+        self.time=0. #время
+        self.data_save_rate=0.01 # стандартная частота сохранения
+        self.data_save_rate_coeff = 1. # во сколько раз частота сохранения отличается от исходной
+        self.last_data_update=0. # когда было последнее обновление данных (в времени моделирования)
+        self.reservoir_energy=0. # энергия резервуара (для моелирования взаимодействия с прилипанем)
+        self.interaction_coef1 = 0.0001 # коэффициетны в кулоновском взаимодействии
         self.interaction_coef=0.001
-        self.interaction_dict = {'No':'Нет','hard_balls': 'Твердые сферы', '612':'Потенциал Леннарда-Джонса'}  # '6_12'
-        self.interaction = 'hard_balls'
-        self.boundary_dict={'free':'Периодические','box':'Коробка','box_w':'Коробка с прилипанием'}
+        self.interaction_dict = {'No':'Нет','hard_balls': 'Твердые сферы', '-2':'Кулоновское взаимодействие'}  # описание всего, что отображается в меню взаимодействий
+        self.interaction = 'No' # текущий выбранный пункт
+        self.boundary_dict={'free':'Периодические','box':'Коробка','box_w':'Коробка с прилипанием'} # взаимодействия с поверхностью
         self.boundary='free'
-        self.r=None
-        self.v=None
-        self.contact=None
-        self.vabs=None
-        self.kinetic_energy=None
-        self.size = size
-        self.updateInfo()
-        self.data_names={'time':'$t$','mean V':'$< V >$','mean V squared':'$<V^2>$','mean r':'$<\Delta r>$','V dist':'$V$','r dist':'$\Delta r$'}
+        self.r=None # координаты частиц
+        self.v=None # скорости частиц
+        self.contact=None # массив для хранения частиц, ударившихся о стенку за последний тик
+        self.vabs=None # модули скоростей
+        self.kinetic_energy=None # кинетические энергии
+        self.size = size # количество частиц
+        self.updateInfo() #при инициализации сразу обновляется состояние
+        self.data_names={'time':'$t$','mean V':'$< V >$','mean V squared':'$<V^2>$','mean r':'$<\Delta r>$','V dist':'$V$','r dist':'$\Delta r$'} # меню графиков
         self.data_captions = {'time': 'Время', 'mean V': 'Средняя скорость', 'mean V squared': 'Средний квадрат скорости',
                               'mean r': 'Среднее расстояние','V dist':'Распределение скоростей','r dist':'Распределение расстояний'}
         self.data_values = {'time': np.array([]), 'mean V': np.array([]),
                           'mean V squared': np.array([]),'mean r': np.array([]),'V dist': np.array([]),'r dist': np.array([])}
         self.data='mean V'
 
+#размер удобнее устанавливать через setter getter
     @property
     def size(self):
         return self._size
@@ -84,26 +91,29 @@ class Model():
         self.set_on_lattice()
         print(f'{self.size = }')
 
-
-
+# установка частиц на решетке
     def set_on_lattice(self):
-        nx=ny=int(np.ceil(np.sqrt(self.size)))
-        rx=np.linspace(0,1-1/nx,nx)+0.5/nx
+        nx=ny=int(np.ceil(np.sqrt(self.size))) # задание размера решетки
+        rx=np.linspace(0,1-1/nx,nx)+0.5/nx # задание позиций частиц на ней
         # print(f'{nx = }')
         # print(f'{rx = }')
         ry = np.linspace(0, 1-1/ny, ny) + 0.5 / ny
         # print(f'{ny = }')
         # print(f'{ry = }')
-        self.r=np.array(np.meshgrid(rx,ry)).reshape(2,-1).T
-        self.r=self.r[:self.size,:]
-        self.v = 1.5*self.t/500*np.ones(self.r.shape)
-        self.v[::2,0]*=-0.5
+        self.r=np.array(np.meshgrid(rx,ry)).reshape(2,-1).T #создание частиц на решетке (их сейчас больше чем надо)
+        self.r=self.r[:self.size,:] #ообрезание лишних
+        self.v = 1.5*np.sqrt(self.t/500)*np.ones(self.r.shape) #зададим скорости
+        self.v[::2,0]*=-0.5 #
         #self.v = 2*(np.random.rand(self.size, 2)-0.5)
         self.updateInfo()
 
     def set_rand(self):
         self.r=np.random.rand(self.size,2)
-        self.v = 2*(np.random.rand(self.size, 2)-0.5)
+        self.v =np.random.rand(2,self.size)
+        print(f'{self.v[0].shape = }')
+        self.v = np.array([np.multiply(self.v[0],np.cos(2*np.pi*self.v[1])),np.multiply(self.v[0],np.sin(2*np.pi*self.v[1]))]).T
+        self.v *= 2*np.sqrt(self.t/85)
+        print(f'{self.v.shape = }')
         self.updateInfo()
 
     def boundaryCheck(self):
@@ -145,35 +155,70 @@ class Model():
         self.time+=dt
         if self.interaction == 'hard_balls':
             dm=distance_matrix(self.r,self.r)
-            print(f'{dm = }\n{dm.shape = }')
-            ineraction_distance=0.05
-            print(np.mean(f'{dm.mean() = }'))
-            if np.any(dm<ineraction_distance):
-                print(f'{np.sum(dm<ineraction_distance) = }')
+            #print(f'{dm = }\n{dm.shape = }')
+            interaction_distance=0.015
+            #print(f'{dm.mean() = }')
+            #print(f'{dm < interaction_distance = }')
+            #print(f'{np.argwhere(dm < interaction_distance) = }')
+            for i,j in np.argwhere(dm < interaction_distance):
+                if i>j:
+                    absv1=np.linalg.norm(self.v[i])
+                    absv2=np.linalg.norm(self.v[j])
+                    theta1=np.arctan2(self.v[i][1],self.v[i][0])
+                    theta2 = np.arctan2(self.v[j][1], self.v[j][0])
+                    #dr=self.r[i]-self.r[j]
+                    phi =  theta2-theta1
+                    #phi=np.arctan2(dr[1],dr[0])
+                    #print(f'{theta1 = } {theta2 = } {phi = }')
+                    self.v[i]=[absv2*np.cos(theta2-phi)*np.cos(phi)+absv1*np.sin(theta1-phi)*np.cos(phi+0.5*np.pi),
+                               absv2*np.cos(theta2-phi)*np.sin(phi)+absv1*np.sin(theta1-phi)*np.sin(phi+0.5*np.pi)]
+                    self.v[j]=[absv1 * np.cos(theta1 - phi) * np.cos(phi) + absv2 * np.sin(theta2 - phi) * np.cos(phi + 0.5 * np.pi),
+                               absv1 * np.cos(theta1 - phi) * np.sin(phi) + absv2 * np.sin(theta2 - phi) * np.sin(
+                                   phi + 0.5 * np.pi)]
+                    #print(f'after: {self.v[i] = } {self.v[j] = }')
+
             a = 0.
-        elif self.interaction == '612':
-            all_r = np.concatenate([self.r, self.r + np.array([0, 1]), self.r + np.array([1, 0]),
-                                    self.r - np.array([0, 1]), self.r - np.array([1, 0]),
-                                    self.r + np.array([1, 1]), self.r + np.array([1, -1]),
-                                    self.r - np.array([1, 1]), self.r - np.array([1, -1])])
-            print(f'{all_r.shape = }')
-            dr = np.array([np.subtract.outer(all_r[:, 0], all_r[:, 0]), np.subtract.outer(all_r[:, 1], all_r[:, 1])])
-            dr = dr[:, :self.size, :]
-            print(f'{dr.shape = }')
-            print(f'{dr[:,1,:] = }')
-            self.d = np.linalg.norm(dr, axis=0)
-            di = np.divide(1., self.d)
-            #d6 = np.power(di, 6)
-            #d12 = np.power(d6, 2)
-            #a = (d6 - d12)
-            d3= np.power(di, 3)
-            a=d3
-            np.fill_diagonal(a, 0.)
-            a1=np.sum(np.multiply(a,dr[0]),axis=1)
-            a2 =np.sum(np.multiply(a,dr[0]),axis=1)
-            print(f'{a.shape = } {a1.shape = } {dr.shape = }')
-            a=np.array([a1,a2])
-            a=self.interaction_coef*a.T
+        elif self.interaction == '-2':
+            if self.boundary == 'free':
+                all_r = np.concatenate([self.r, self.r + np.array([0, 1]), self.r + np.array([1, 0]),
+                                        self.r - np.array([0, 1]), self.r - np.array([1, 0]),
+                                        self.r + np.array([1, 1]), self.r + np.array([1, -1]),
+                                        self.r - np.array([1, 1]), self.r - np.array([1, -1])])
+                #print(f'{all_r.shape = }')
+                dr = np.array([np.subtract.outer(all_r[:, 0], all_r[:, 0]), np.subtract.outer(all_r[:, 1], all_r[:, 1])])
+                dr = dr[:, :self.size, :]
+                #print(f'{dr.shape = }')
+                #print(f'{dr[:,1,:] = }')
+                self.d = np.linalg.norm(dr, axis=0)
+                di = np.divide(1., self.d)
+                #d6 = np.power(di, 6)
+                #d12 = np.power(d6, 2)
+                #a = (d6 - d12)
+                d3= np.power(di, 3)
+                a=d3
+                np.fill_diagonal(a, 0.)
+                a *= self.interaction_coef1
+                a1=np.sum(np.multiply(a,dr[0]),axis=1)
+                a2 =np.sum(np.multiply(a,dr[0]),axis=1)
+                #print(f'{a.shape = } {a1.shape = } {dr.shape = }')
+                a=np.array([a1,a2])
+                a=self.interaction_coef*a.T
+            else:
+                dr = np.array(
+                    [np.subtract.outer(self.r[:, 0], self.r[:, 0]), np.subtract.outer(self.r[:, 1], self.r[:, 1])])
+                self.d = np.linalg.norm(dr, axis=0)
+                di = np.divide(1., self.d)
+                d3 = np.power(di, 3)
+                a = d3
+                np.fill_diagonal(a, 0.)
+                a*=self.interaction_coef1
+                #print(f'{a.max() = }')
+                a1 = np.sum(np.multiply(a, dr[0]), axis=1)
+                a2 = np.sum(np.multiply(a, dr[1]), axis=1)
+                #print(f'{a.shape = } {a1.shape = } {dr.shape = }')
+                a = np.array([a1, a2])
+                a = self.interaction_coef * a.T
+                #print(f'{a.max() = }')
         else:
             a=0.
 
@@ -187,7 +232,7 @@ class Model():
         self.vabs=np.linalg.norm(self.v,axis=1)
         k=np.linalg.norm(self.vabs)
         self.kinetic_energy=k*k
-        if not self.interaction == '612':
+        if not self.interaction == '-2':
             all_r = np.concatenate([self.r, self.r + np.array([0, 1]), self.r + np.array([1, 0]),
                                     self.r - np.array([0, 1]), self.r - np.array([1, 0]),
                                     self.r + np.array([1, 1]), self.r + np.array([1, -1]),
@@ -235,6 +280,7 @@ class RenderWidget(QtWidgets.QWidget):
         self.sm = plt.cm.ScalarMappable(cmap=self.cmap, norm=self.norm)
         #self.cbar=mpl.colorbar.ColorbarBase(self.ax, cmap=self.cmap, norm=self.norm)
         self.cbar=self.ax.figure.colorbar(self.sm)
+        self.cbar.ax.set_title('Скорость', fontsize=10)
 
 
         self.ax.get_xaxis().set_visible(False)
@@ -265,7 +311,10 @@ class RenderWidget(QtWidgets.QWidget):
             self.button.setText('Прервать запись')
             self.state.record = True
             self.save_directory = './record/'
-            os.mkdir(self.save_directory)
+            try:
+                os.mkdir(self.save_directory)
+            except:
+                pass
         print(self.figure)
 
     def updatePlot(self,file=None):
@@ -288,8 +337,8 @@ class RenderWidget(QtWidgets.QWidget):
             #print('Plot updated!')
 
     def timePlotUpdate(self):
-        if (not self.state.pause) or self.state.update_plot_request:
-            file=None if not self.state.record else self.save_directory+'{}'.format(self.state.record_n)
+        if (not self.state.pause) or self.state.update_request:
+            file=None if not self.state.record else self.save_directory+'{:10.4f}.png'.format(self.model.time)
             self.updatePlot(file)
 
 
@@ -314,7 +363,7 @@ class ParamWidget(QtWidgets.QWidget):
         self.resetWidget.clicked.connect(self.onReset)
 
         self.nWidget = QtWidgets.QSlider(orientation=QtCore.Qt.Horizontal)
-        self.nWidget.setMinimum(1)
+        self.nWidget.setMinimum(4)
         self.nWidget.setMaximum(500)
         self.nWidget.valueChanged.connect(self.onnValue)
         self.nWidget.setFixedWidth(200)
@@ -374,6 +423,8 @@ class ParamWidget(QtWidgets.QWidget):
         self.t=250
         self.s = 0
         self.pause=True
+        self.state.update_request = True
+        self.state.update_plots_request = True
 
     def onReset(self, value):
         self.reset_parameters()
@@ -382,17 +433,17 @@ class ParamWidget(QtWidgets.QWidget):
     def onFM(self, value):
         self.model.set_on_lattice()
         self.state.update_request=True
-        self.state.update_plot_request = True
+        self.state.update_plots_request = True
 
     def onRandom(self, value):
         self.model.set_rand()
         self.state.update_request = True
-        self.state.update_plot_request = True
+        self.state.update_plots_request = True
 
     def onnValue(self, value):
         self.n = value
         self.state.update_request = True
-        self.state.update_plot_request = True
+        self.state.update_plots_request = True
 
     def ontValue(self, value):
         self.t = value
@@ -521,7 +572,7 @@ class GraphWindow(QtWidgets.QWidget):
                 self.ax.set_ylabel(self.model.data_names[self.current_plot])
             self.canvas.draw()
             self.isfree = True
-            self.state.update_plot_request=False
+            self.state.update_plots_request=False
 
     def timePlotUpdate(self):
         if not self.state.pause or self.state.update_request:
