@@ -72,11 +72,14 @@ class Model():
         self.kinetic_energy=None # кинетические энергии
         self.size = size # количество частиц
         self.updateInfo() #при инициализации сразу обновляется состояние
-        self.data_names={'time':'$t$','mean V':'$< V >$','mean V squared':'$<V^2>$','mean r':'$<\Delta r>$','V dist':'$V$','r dist':'$\Delta r$'} # меню графиков
+        self.data_names={'time':'$t$','mean V':'$< V >$','mean V squared':'$<V^2>$','mean r':'$<\Delta r>$','V dist':'$|V|$','Vx dist':'$V_x$','r dist':'$\Delta r$',
+                         'first_moment': 'Первый момент','second_moment': 'Второй момент','third_moment': 'Третий момент','forth_moment': 'Четвертый момент','fifth_moment': 'Пятый момент'} # меню графиков
         self.data_captions = {'time': 'Время', 'mean V': 'Средняя скорость', 'mean V squared': 'Средний квадрат скорости',
-                              'mean r': 'Среднее расстояние','V dist':'Распределение скоростей','r dist':'Распределение расстояний'}
+                              'mean r': 'Среднее расстояние','V dist':'Распределение модулей скоростей','Vx dist':'Распределение проекций скоростей','r dist':'Распределение расстояний',
+                              'first_moment': 'Первый момент','second_moment': 'Второй момент','third_moment': 'Третий момент','forth_moment': 'Четвертый момент','fifth_moment': 'Пятый момент'}
         self.data_values = {'time': np.array([]), 'mean V': np.array([]),
-                          'mean V squared': np.array([]),'mean r': np.array([]),'V dist': np.array([]),'r dist': np.array([])}
+                          'mean V squared': np.array([]),'mean r': np.array([]),'V dist': np.array([]),'Vx dist': np.array([]),'r dist': np.array([]),
+                            'first_moment':np.array([]),'second_moment': np.array([]),'third_moment': np.array([]),'forth_moment': np.array([]),'fifth_moment': np.array([])}
         self.data='mean V'
 
 #размер удобнее устанавливать через setter getter
@@ -103,7 +106,10 @@ class Model():
         self.r=np.array(np.meshgrid(rx,ry)).reshape(2,-1).T #создание частиц на решетке (их сейчас больше чем надо)
         self.r=self.r[:self.size,:] #ообрезание лишних
         self.v = 1.5*np.sqrt(self.t/500)*np.ones(self.r.shape) #зададим скорости
-        self.v[::2,0]*=-0.5 #
+        self.v[::2,0]*=-0.2
+        self.v[::2,1]*=0.5#
+        self.v[:, 0] -= self.v[:, 0].mean()
+        self.v[:, 1] -= self.v[:, 1].mean()
         #self.v = 2*(np.random.rand(self.size, 2)-0.5)
         self.updateInfo()
 
@@ -113,6 +119,8 @@ class Model():
         print(f'{self.v[0].shape = }')
         self.v = np.array([np.multiply(self.v[0],np.cos(2*np.pi*self.v[1])),np.multiply(self.v[0],np.sin(2*np.pi*self.v[1]))]).T
         self.v *= 2*np.sqrt(self.t/85)
+        self.v[:,0]-=self.v[:,0].mean()
+        self.v[:, 1] -= self.v[:, 1].mean()
         print(f'{self.v.shape = }')
         self.updateInfo()
 
@@ -233,13 +241,18 @@ class Model():
         k=np.linalg.norm(self.vabs)
         self.kinetic_energy=k*k
         if not self.interaction == '-2':
-            all_r = np.concatenate([self.r, self.r + np.array([0, 1]), self.r + np.array([1, 0]),
-                                    self.r - np.array([0, 1]), self.r - np.array([1, 0]),
-                                    self.r + np.array([1, 1]), self.r + np.array([1, -1]),
-                                    self.r - np.array([1, 1]), self.r - np.array([1, -1])])
-            dr = np.array([np.subtract.outer(all_r[:, 0], all_r[:, 0]), np.subtract.outer(all_r[:, 1], all_r[:, 1])])
-            dr = dr[:, :self.size, :]
-            self.d = np.linalg.norm(dr, axis=0)
+            if self.boundary == 'free':
+                all_r = np.concatenate([self.r, self.r + np.array([0, 1]), self.r + np.array([1, 0]),
+                                        self.r - np.array([0, 1]), self.r - np.array([1, 0]),
+                                        self.r + np.array([1, 1]), self.r + np.array([1, -1]),
+                                        self.r - np.array([1, 1]), self.r - np.array([1, -1])])
+                dr = np.array([np.subtract.outer(all_r[:, 0], all_r[:, 0]), np.subtract.outer(all_r[:, 1], all_r[:, 1])])
+                dr = dr[:, :self.size, :]
+                self.d = np.linalg.norm(dr, axis=0)
+            else:
+                dr = np.array(
+                    [np.subtract.outer(self.r[:, 0], self.r[:, 0]), np.subtract.outer(self.r[:, 1], self.r[:, 1])])
+                self.d = np.linalg.norm(dr, axis=0)
 
 
     def updateData(self):
@@ -248,7 +261,13 @@ class Model():
             self.data_values['mean V']=np.append(self.data_values['mean V'],np.mean(self.vabs))
             self.data_values['mean V squared'] = np.append(self.data_values['mean V squared'], np.mean(np.multiply(self.vabs,self.vabs)))
             self.data_values['mean r'] = np.append(self.data_values['mean r'], np.mean(self.d))
+            self.data_values['first_moment'] = np.append(self.data_values['first_moment'], np.mean(self.v[:,0]))
+            self.data_values['second_moment'] = np.append(self.data_values['second_moment'], np.mean(self.v[:, 0]**2))
+            self.data_values['third_moment'] = np.append(self.data_values['third_moment'], np.mean(self.v[:, 0]**3))
+            self.data_values['forth_moment'] = np.append(self.data_values['forth_moment'], np.mean(self.v[:, 0]**4))
+            self.data_values['fifth_moment'] = np.append(self.data_values['fifth_moment'], np.mean(self.v[:, 0]**5))
             self.data_values['V dist'] = np.copy(self.vabs)
+            self.data_values['Vx dist'] = self.v[:,0]
             self.data_values['r dist'] = np.copy(self.d).reshape(-1)
             self.last_data_update=self.time
 
@@ -260,8 +279,8 @@ class Model():
 
     def clearData(self):
         self.data_values = {'time': np.array([]), 'mean V': np.array([]),
-                            'mean V squared': np.array([]), 'mean r': np.array([]), 'V dist': np.array([]),
-                            'r dist': np.array([])}
+                            'mean V squared': np.array([]), 'mean r': np.array([]), 'V dist': np.array([]), 'Vx dist': np.array([]),'r dist': np.array([]),
+                            'first_moment': np.array([]),'second_moment': np.array([]),'third_moment': np.array([]),'forth_moment': np.array([]),'fifth_moment': np.array([])}
         self.data_save_rate_coeff=1.
         self.last_data_update=0.
 
@@ -560,12 +579,16 @@ class GraphWindow(QtWidgets.QWidget):
             self.ax.clear()
             if self.current_plot == 'V dist':
                 self.ax.hist(self.model.data_values[self.current_plot],bins=20)
-                self.ax.set_xlabel('$V$')
-                self.ax.set_ylabel('$Вероятность$')
+                self.ax.set_xlabel('$|V|$')
+                self.ax.set_ylabel('Количество частиц')
+            elif self.current_plot == 'Vx dist':
+                self.ax.hist(self.model.data_values[self.current_plot],bins=20)
+                self.ax.set_xlabel('$V_x$')
+                self.ax.set_ylabel('Количество частиц')
             elif self.current_plot == 'r dist':
                 self.ax.hist(self.model.data_values[self.current_plot],bins=20)
                 self.ax.set_xlabel('$r$')
-                self.ax.set_ylabel('$Вероятность$')
+                self.ax.set_ylabel('Количество частиц')
             else:
                 self.ax.plot(self.model.data_values['time'],self.model.data_values[self.current_plot])
                 self.ax.set_xlabel('$t$')
